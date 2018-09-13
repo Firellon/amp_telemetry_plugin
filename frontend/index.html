@@ -1,0 +1,165 @@
+<html lang="en" class="gr__media-players_hivestreaming_com">
+
+<head>
+    <style class="vjs-styles-defaults">
+        .video-js {
+            width: 300px;
+            height: 150px;
+        }
+
+        .vjs-fluid {
+            padding-top: 56.25%
+        }
+    </style>
+    <style class="vjs-styles-dimensions">
+        .vid1-dimensions {
+            width: 640px;
+            height: 400px;
+        }
+
+        .vid1-dimensions.vjs-fluid {
+            padding-top: 56.25%;
+        }
+    </style>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link href="http://amp.azure.net/libs/amp/latest/skins/amp-default/azuremediaplayer.min.css" rel="stylesheet">
+    <script src="http://amp.azure.net/libs/amp/latest/azuremediaplayer.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="./TelemetryManager.js"></script>
+    <script src="./AzureEventHandler.js"></script>
+    <script>
+        let telemetryManager
+        let eventHandler
+        (function () {
+            amp.plugin('telemetry', function (options) {
+                const telemetryIntervalSecs = options.telemetryIntervalSecs || 30
+                const telemetryServiceUrl = options.telemetryServiceUrl
+                if (!options.telemetryServiceUrl) {
+                    console.error('TelemetryPlugin requires telemetryServiceUrl parameter to be set!')
+                    return
+                }
+
+                const myPlayer = this
+                telemetryManager = new TelemetryManager(myPlayer)
+                eventHandler = new AzureEventHandler(myPlayer, telemetryManager)
+
+                const generalEventTypes = [
+                    amp.eventName.pause,
+                    amp.eventName.play,
+                    amp.eventName.skip,
+                    amp.eventName.volumechange,
+                    // There is no buffering event, but waiting is the equivalent
+                    amp.eventName.waiting,
+                    amp.eventName.fullscreenchange,
+                    amp.eventName.ended,
+                    amp.eventName.error
+                ]
+                generalEventTypes.forEach(eventType => {
+                    myPlayer.addEventListener(eventType, (evt) => eventHandler.timestampEvent(evt))
+                })
+
+                const bitrateChangeEventTypes = [
+                    amp.eventName.downloadbitratechanged,
+                    amp.eventName.playbackbitratechanged
+                ]
+                bitrateChangeEventTypes.forEach(eventType => {
+                    myPlayer.addEventListener(eventType, (evt) => eventHandler.bitrateEvent(evt))
+                })
+
+                const sendTelemetryToServer = () => {
+                    console.log('Sending Telemetry data to the server...')
+                    const data = telemetryManager.getTelemetry()
+                    axios.post(telemetryServiceUrl, data)
+                    .then(function (response) {
+                        console.log(response)
+                    })
+                    .catch(function (error) {
+                        console.log(error)
+                    });
+                }
+
+                setInterval(() => {
+                    sendTelemetryToServer()
+                }, telemetryIntervalSecs * 1000)
+
+                const sendTelemetryBeacon = () => {   
+                    navigator.sendBeacon(telemetryServiceUrl, telemetryManager.getTelemetry());
+                }
+
+                window.onbeforeunload = sendTelemetryBeacon
+                window.addEventListener('beforeunload', sendTelemetryBeacon, false);
+
+                console.log('Telemetry plugin initialised on AMP player:', myPlayer)                
+            });
+        }).call(this);
+
+    </script>
+    <style>
+        @font-face {
+            font-family: "Segoe UI";
+            src: url("https://amp.azure.net/libs/amp/latest/skins/amp-default/assets/fonts/segoeui/segoeui.eot");
+            src: url("https://amp.azure.net/libs/amp/latest/skins/amp-default/assets/fonts/segoeui/segoeui.eot?#iefix") format("embedded-opentype"), url("https://amp.azure.net/libs/amp/latest/skins/amp-default/assets/fonts/segoeui/segoeui.woff") format("woff"), url("https://amp.azure.net/libs/amp/latest/skins/amp-default/assets/fonts/segoeui/segoeui.ttf") format("truetype"), url("https://amp.azure.net/libs/amp/latest/skins/amp-default/assets/fonts/segoeui/segoeui.svg#Segoe") format("svg");
+            font-weight: normal;
+            font-style: normal;
+        }
+    </style>
+</head>
+
+<body class="" data-gr-c-s-loaded="true">
+
+    <video id="vid1" class="azuremediaplayer amp-default-skin" width="640" height="400">
+        <p class="amp-no-js">
+            To view this video please enable JavaScript, and consider upgrading to a web browser that supports HTML5 video
+        </p>
+    </video>
+
+    <!-- <div id="txtLog"></div> -->
+
+    <script>
+        
+        const myPlayer = amp('vid1', {
+            /* Options */
+            "nativeControlsForTouch": false,
+            autoplay: true,
+            controls: true,
+            width: "640",
+            height: "400",
+            techOrder: ['AzureHtml5JS'],
+            plugins: {
+                /* load our telemetry plugin */
+                telemetry: {
+                    /* Options */
+                    telemetryServiceUrl: 'http://localhost:4000/telemetry',
+                    telemetryIntervalSecs: 30
+                }
+            }
+        }, function () {
+            console.log('Player:', myPlayer);
+        })
+
+        myPlayer.addEventListener(amp.eventName.loadedmetadata, function () {
+            telemetryManager.addStreamInformation()
+
+            const videoBuffer = myPlayer.videoBufferData()
+                telemetryManager.addBufferListeners(videoBuffer, (evt) => {
+                    eventHandler.logBufferData(evt, "video", audioBuffer)
+                })
+
+                const audioBuffer = myPlayer.audioBufferData()
+                telemetryManager.addBufferListeners(audioBuffer, (evt) => {
+                    eventHandler.logBufferData(evt, "audio", audioBuffer)
+                })
+        });
+
+        myPlayer.src([{
+            src: "https://amssamples.streaming.mediaservices.windows.net/91492735-c523-432b-ba01-faba6c2206a2/AzureMediaServicesPromo.ism/manifest(format=mpd-time-csf)",
+            type: "application/dash+xml"
+        }]);
+    </script>
+
+
+
+</body>
+
+</html>
